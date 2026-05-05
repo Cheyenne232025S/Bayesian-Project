@@ -14,20 +14,21 @@ knitr::opts_chunk$set(echo = TRUE)
 ## Bayesian Model - regression with GDP, social support, freedom, and corruption, life expectancy
 
 ```{r}
-data <- read.csv("C://Users/yumna/Downloads/2019.csv")
-data
+#data <- read.csv("C://Users/yumna/Downloads/2019.csv")
+data <- X2019
 
 ```
+
 ```{r}
-X_raw <- model.matrix(~ GDP.per.capita + Social.support + 
-                  Freedom.to.make.life.choices + 
-                  Healthy.life.expectancy + 
-                  Perceptions.of.corruption, data = data)
+X_raw <- model.matrix(~ `GDP per capita` + `Social support` + 
+                  `Freedom to make life choices` + 
+                  `Healthy life expectancy` + 
+                  `Perceptions of corruption`, data = data)
 
 # scale/normalize except intercept
 X <- X_raw
 X[, -1] <- scale(X[, -1], center = TRUE, scale = FALSE)
-X
+
 ```
 
 
@@ -100,14 +101,41 @@ gibbs_sampler <- function(Y, X, n_iter = 5000, burn = 1000,
 library(MASS)
 
 result <- gibbs_sampler(Y, X)
+```
 
+
+```{r}
 # posterior means summary
 colMeans(result$beta)
 mean(result$phi)
 
+coef_labels <- c(
+  "Beta_0: Intercept",
+  "Beta_1: GDP per capita",
+  "Beta_2: Social support",
+  "Beta_3: Freedom",
+  "Beta_4: Life expectancy",
+  "Beta_5: Corruption"
+)
 
-# trace plots
-matplot(result$beta, type = "l")
+
+# Give beta columns meaningful names
+beta_names <- coef_labels
+
+# Set plotting layout: 3 rows x 2 columns for 6 betas
+par(mfrow = c(3, 2), mar = c(4, 4, 3, 1))
+
+# Trace plot for each beta
+for (j in 1:ncol(result$beta)) {
+  plot(
+    result$beta[, j],
+    type = "l",
+    main = paste("Trace Plot for", beta_names[j]),
+    xlab = "Iteration",
+    ylab = expression(beta),
+    col = "black"
+  )
+}
 
 plot(result$phi, type = "l")
 
@@ -122,5 +150,79 @@ lm(Y ~ X[, -1])
 # posterior predictive (we'll choose if we want to continue this)
 y_hat <- X %*% t(result$beta)
 y_hat
+```
+convergence test for betas:
+```{r}
+library(coda)
+# Geweke z-scores for each beta
+geweke_beta_z <- apply(result$beta, 2, function(chain) {
+  geweke.diag(as.mcmc(chain), frac1 = 0.1, frac2 = 0.5)$z
+})
+
+# Convert z-scores to two-sided p-values
+geweke_beta_p <- 2 * (1 - pnorm(abs(geweke_beta_z)))
+
+# Put results in a table
+geweke_beta_results <- data.frame(
+  Parameter = colnames(X),
+  Geweke_Z = geweke_beta_z,
+  P_value = geweke_beta_p
+)
+
+geweke_beta_results
+
+```
+for phi:
+```{r}
+geweke_phi_z <- geweke.diag(as.mcmc(result$phi), frac1 = 0.1, frac2 = 0.5)$z
+
+geweke_phi_p <- 2 * (1 - pnorm(abs(geweke_phi_z)))
+
+geweke_phi_results <- data.frame(
+  Parameter = "phi",
+  Geweke_Z = geweke_phi_z,
+  P_value = geweke_phi_p
+)
+
+geweke_phi_results
+
+```
+
+histograms for betas and phi:
+```{r}
+# Histograms for each beta
+par(mfrow = c(3, 2), mar = c(4, 4, 3, 1))
+
+for (j in 1:ncol(result$beta)) {
+  hist(
+    result$beta[, j],
+    breaks = 30,
+    main = paste("Posterior Histogram for", beta_names[j]),
+    xlab = beta_names[j],
+    col = "gray",
+    border = "white"
+  )
+}
+
+```
+
+for phi:
+```{r}
+# Reset plotting layout
+par(mfrow = c(1, 1))
+
+hist(
+  result$phi,
+  breaks = 30,
+  main = expression("Posterior Histogram for " * phi),
+  xlab = expression(phi),
+  col = "gray",
+  border = "white"
+)
+
+```
+
+```{r}
+result
 ```
 
