@@ -1,33 +1,126 @@
 ---
 title: "Bayes_modeling"
-author: "Cheyenne Erickson"
+author: "Cheyenne Erickson, Yumna Rizvi, Bo Zhou, Ben Davidson"
 date: "2026-05-04"
-output: html_document
+output:
+  pdf_document: default
+  html_document: default
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+## Bayesian Model - regression with GDP, social support, freedom, and corruption, life expectancy
+
 ```{r}
-data <- X2019
+data <- read.csv("C://Users/yumna/Downloads/2019.csv")
+data
 
 ```
-
-The X matrix
 ```{r}
-X <- model.matrix(~ `GDP per capita` +  + `Social support` +  + `Freedom to make life choices` + `Healthy life expectancy` + `Perceptions of corruption`, data = data)
+X_raw <- model.matrix(~ GDP.per.capita + Social.support + 
+                  Freedom.to.make.life.choices + 
+                  Healthy.life.expectancy + 
+                  Perceptions.of.corruption, data = data)
 
-Y <- data$Score
+# scale/normalize except intercept
+X <- X_raw
+X[, -1] <- scale(X[, -1], center = TRUE, scale = FALSE)
 X
 ```
-standirzie X's scale func to have mean 0 and var 1(normalization)
 
-prior specifications
+
 ```{r}
-MU <- c(0,0,0,0,0)
-a <- .01 #or .001
-b <- .01 #.001
-g <- 5
-
+Y <- data$Score
 ```
+
+Prior Specifications:
+
+```{r}
+Mu <- c(0, 0, 0, 0)
+# explain why we chose the g, a, and b
+g <- 5 # our dimension p in n vs p (n = 157, p = 5)
+a <-.001
+b <-.001 # weak informative
+```
+
+```{r}
+gibbs_sampler <- function(Y, X, n_iter = 5000, burn = 1000,
+                          g = 5, a = 0.001, b = 0.001) {
+
+  n <- length(Y)
+  p <- ncol(X)
+
+  # storage
+  beta_samples <- matrix(0, n_iter, p)
+  phi_samples  <- numeric(n_iter)
+
+  # initial values
+  beta <- rep(0, p)
+  phi  <- 1
+
+  # precompute
+  XtX <- t(X) %*% X
+  XtY <- t(X) %*% Y
+  I_p <- diag(p)
+
+  V_beta_base <- solve(XtX + (1/g) * I_p)   # no phi here
+
+  for (t in 1:n_iter) {
+
+    # sample beta | phi, y conditional for gibbs
+    V_beta <- (1/phi) * V_beta_base
+    m_beta <- V_beta_base %*% XtY
+
+    beta <- MASS::mvrnorm(1, mu = m_beta, Sigma = V_beta)
+
+    # sample phi | beta, y conditional for gibbs
+    residual <- Y - X %*% beta
+
+    a_star <- a + (n + p)/2
+    b_star <- b + 0.5 * (t(residual) %*% residual +
+                         (1/g) * t(beta) %*% beta)
+
+    phi <- rgamma(1, shape = a_star, rate = b_star)
+
+    # store
+    beta_samples[t, ] <- beta
+    phi_samples[t] <- phi
+  }
+
+  # remove burn-in
+  list(
+    beta = beta_samples[(burn+1):n_iter, ],
+    phi  = phi_samples[(burn+1):n_iter]
+  )
+}
+
+
+library(MASS)
+
+result <- gibbs_sampler(Y, X)
+
+# posterior means summary
+colMeans(result$beta)
+mean(result$phi)
+
+
+# trace plots
+matplot(result$beta, type = "l")
+
+plot(result$phi, type = "l")
+
+# histograms
+hist(result$phi)
+
+
+# CI
+apply(result$beta, 2, quantile, c(0.025, 0.975))
+# compare with regular OLS (we will see how much the prior changed our data when we compare bayesian results to OLS)
+lm(Y ~ X[, -1])
+# posterior predictive (we'll choose if we want to continue this)
+y_hat <- X %*% t(result$beta)
+y_hat
+```
+
